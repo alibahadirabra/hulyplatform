@@ -994,7 +994,7 @@ export async function createCollabDocInfo (
   const usersInfo = await ctx.with(
     'get-user-info',
     {},
-    async (ctx) => await getUsersInfo(ctx, [...Array.from(targets), originTx.modifiedBy as Ref<PersonAccount>], control)
+    (ctx) => getUsersInfo(ctx, [...Array.from(targets), originTx.modifiedBy as Ref<PersonAccount>], control)
   )
   const sender: SenderInfo = usersInfo.get(originTx.modifiedBy) ?? {
     _id: originTx.modifiedBy
@@ -1341,8 +1341,8 @@ async function collectionCollabDoc (
     await ctx.with(
       'create-collab-doc-info',
       {},
-      async (ctx) =>
-        await createCollabDocInfo(
+      (ctx) =>
+        createCollabDocInfo(
           ctx,
           collaborators as Ref<PersonAccount>[],
           control,

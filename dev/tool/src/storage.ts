@@ -13,16 +13,13 @@
 // limitations under the License.
 //
 
-import { type Attachment } from '@hcengineering/attachment'
 import { type Blob, type MeasureContext, type Ref, type WorkspaceId, RateLimiter } from '@hcengineering/core'
-import { DOMAIN_ATTACHMENT } from '@hcengineering/model-attachment'
 import {
   type ListBlobResult,
   type StorageAdapter,
   type StorageAdapterEx,
   type UploadedObjectInfo
 } from '@hcengineering/server-core'
-import { type Db } from 'mongodb'
 import { PassThrough } from 'stream'
 
 export interface MoveFilesParams {
@@ -52,31 +49,6 @@ export async function moveFiles (
     await retryOnFailure(ctx, 5, async () => {
       await processAdapter(ctx, exAdapter, adapter, target, workspaceId, params)
     })
-  }
-}
-
-export async function showLostFiles (
-  ctx: MeasureContext,
-  workspaceId: WorkspaceId,
-  db: Db,
-  storageAdapter: StorageAdapter,
-  { showAll }: { showAll: boolean }
-): Promise<void> {
-  const iterator = db.collection<Attachment>(DOMAIN_ATTACHMENT).find({})
-
-  while (true) {
-    const attachment = await iterator.next()
-    if (attachment === null) break
-
-    const { _id, _class, file, name, modifiedOn } = attachment
-    const date = new Date(modifiedOn).toISOString()
-
-    const stat = await storageAdapter.stat(ctx, workspaceId, file)
-    if (stat === undefined) {
-      console.warn('-', date, _class, _id, file, name)
-    } else if (showAll) {
-      console.log('+', date, _class, _id, file, name)
-    }
   }
 }
 

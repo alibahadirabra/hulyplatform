@@ -56,7 +56,6 @@ import serverClientPlugin, {
   listAccountWorkspaces,
   updateBackupInfo
 } from '@hcengineering/server-client'
-import { getServerPipeline, registerServerPlugins, registerStringLoaders } from '@hcengineering/server-pipeline'
 import serverToken, { decodeToken, generateToken } from '@hcengineering/server-token'
 import toolPlugin, { FileModelLogger } from '@hcengineering/server-tool'
 import { createWorkspace, upgradeWorkspace } from '@hcengineering/workspace-service'
@@ -67,7 +66,7 @@ import { program, type Command } from 'commander'
 import { clearTelegramHistory } from './telegram'
 import { diffWorkspace, recreateElastic, updateField } from './workspace'
 
-import core, {
+import {
   AccountRole,
   generateId,
   getWorkspaceId,
@@ -81,11 +80,9 @@ import core, {
   type Ref,
   type Tx,
   type Version,
-  type WorkspaceId,
-  type WorkspaceIdWithUrl
+  type WorkspaceId
 } from '@hcengineering/core'
 import { consoleModelLogger, type MigrateOperation } from '@hcengineering/model'
-import contact from '@hcengineering/model-contact'
 import { getMongoClient, getWorkspaceMongoDB, shutdown } from '@hcengineering/mongo'
 import { backupDownload } from '@hcengineering/server-backup/src/backup'
 
@@ -105,20 +102,14 @@ import {
   cleanArchivedSpaces,
   cleanRemovedTransactions,
   cleanWorkspace,
-  fixCommentDoubleIdCreate,
   fixMinioBW,
-  fixSkills,
   optimizeModel,
-  removeDuplicateIds,
-  restoreHrTaskTypesFromUpdates,
-  restoreRecruitingTaskTypes
+  removeDuplicateIds
 } from './clean'
 import { changeConfiguration } from './configuration'
 import { moveAccountDbFromMongoToPG, moveFromMongoToPG, moveWorkspaceFromMongoToPG } from './db'
-import { fixJsonMarkup, migrateMarkup, restoreLostMarkup } from './markup'
-import { fixMixinForeignAttributes, showMixinForeignAttributes } from './mixin'
 import { fixAccountEmails, renameAccount } from './renameAccount'
-import { moveFiles, showLostFiles } from './storage'
+import { moveFiles } from './storage'
 
 const colorConstants = {
   colorRed: '\u001b[31m',
@@ -267,12 +258,11 @@ export function devTool (
     .description('compact all db collections')
     .option('-w, --workspace <workspace>', 'A selected "workspace" only', '')
     .action(async (cmd: { workspace: string }) => {
-      const { dbUrl } = prepareTools()
       const mongodbUri = getMongoDBUrl()
-      await withDatabase(dbUrl, async (db) => {
+      await withDatabase(mongodbUri, async (db) => {
         console.log('compacting db ...')
         let gtotal: number = 0
-        const client = getMongoClient(mongodbUri ?? dbUrl)
+        const client = getMongoClient(mongodbUri)
         const _client = await client.getClient()
         try {
           const workspaces = await listWorkspacesPure(db)
@@ -509,13 +499,10 @@ export function devTool (
     })
 
   program
-    .command('list-unused-workspaces-mongo')
-    .description(
-      'remove unused workspaces, please pass --remove to really delete them. Without it will only mark them disabled'
-    )
-    .option('-r|--remove [remove]', 'Force remove', false)
+    .command('list-unused-workspaces')
+    .description('list unused workspaces')
     .option('-t|--timeout [timeout]', 'Timeout in days', '7')
-    .action(async (cmd: { remove: boolean, disable: boolean, exclude: string, timeout: string }) => {
+    .action(async (cmd: { exclude: string, timeout: string }) => {
       const { dbUrl } = prepareTools()
       await withDatabase(dbUrl, async (db) => {
         const workspaces = new Map((await listWorkspacesPure(db)).map((p) => [p._id.toString(), p]))
@@ -526,48 +513,38 @@ export function devTool (
 
         await withStorage(async (adapter) => {
           // We need to update workspaces with missing workspaceUrl
-          const mongodbUri = getMongoDBUrl()
-          const client = getMongoClient(mongodbUri ?? dbUrl)
-          const _client = await client.getClient()
-          try {
-            for (const a of accounts) {
-              const authored = a.workspaces
-                .map((it) => workspaces.get(it.toString()))
-                .filter((it) => it !== undefined && it.createdBy?.trim() === a.email?.trim()) as Workspace[]
-              authored.sort((a, b) => b.lastVisit - a.lastVisit)
-              if (authored.length > 0) {
-                const lastLoginDays = Math.floor((Date.now() - a.lastVisit) / 1000 / 3600 / 24)
-                toolCtx.info(a.email, {
-                  workspaces: a.workspaces.length,
-                  firstName: a.first,
-                  lastName: a.last,
-                  lastLoginDays
-                })
-                for (const ws of authored) {
-                  const lastVisitDays = Math.floor((Date.now() - ws.lastVisit) / 1000 / 3600 / 24)
+          for (const a of accounts) {
+            const authored = a.workspaces
+              .map((it) => workspaces.get(it.toString()))
+              .filter((it) => it !== undefined && it.createdBy?.trim() === a.email?.trim()) as Workspace[]
+            authored.sort((a, b) => b.lastVisit - a.lastVisit)
+            if (authored.length > 0) {
+              const lastLoginDays = Math.floor((Date.now() - a.lastVisit) / 1000 / 3600 / 24)
+              toolCtx.info(a.email, {
+                workspaces: a.workspaces.length,
+                firstName: a.first,
+                lastName: a.last,
+                lastLoginDays
+              })
+              for (const ws of authored) {
+                const lastVisitDays = Math.floor((Date.now() - ws.lastVisit) / 1000 / 3600 / 24)
 
-                  if (lastVisitDays > _timeout) {
-                    toolCtx.warn('  --- unused', {
-                      url: ws.workspaceUrl,
-                      id: ws.workspace,
-                      lastVisitDays
-                    })
-                    if (cmd.remove) {
-                      await dropWorkspaceFull(toolCtx, db, _client, null, ws.workspace, adapter)
-                    }
-                  } else {
-                    toolCtx.warn('  +++ used', {
-                      url: ws.workspaceUrl,
-                      id: ws.workspace,
-                      createdBy: ws.createdBy,
-                      lastVisitDays
-                    })
-                  }
+                if (lastVisitDays > _timeout) {
+                  toolCtx.warn('  --- unused', {
+                    url: ws.workspaceUrl,
+                    id: ws.workspace,
+                    lastVisitDays
+                  })
+                } else {
+                  toolCtx.warn('  +++ used', {
+                    url: ws.workspaceUrl,
+                    id: ws.workspace,
+                    createdBy: ws.createdBy,
+                    lastVisitDays
+                  })
                 }
               }
             }
-          } finally {
-            client.close()
           }
         })
       })
@@ -710,32 +687,6 @@ export function devTool (
         console.log('latest model version:', JSON.stringify(version))
       })
     })
-
-  program.command('fix-person-accounts-mongo').action(async () => {
-    const { dbUrl, version } = prepareTools()
-    const mongodbUri = getMongoDBUrl()
-    await withDatabase(dbUrl, async (db) => {
-      const ws = await listWorkspacesPure(db)
-      const client = getMongoClient(mongodbUri)
-      const _client = await client.getClient()
-      try {
-        for (const w of ws) {
-          const wsDb = getWorkspaceMongoDB(_client, { name: w.workspace })
-          await wsDb.collection('tx').updateMany(
-            {
-              objectClass: contact.class.PersonAccount,
-              objectSpace: null
-            },
-            { $set: { objectSpace: core.space.Model } }
-          )
-        }
-      } finally {
-        client.close()
-      }
-
-      console.log('latest model version:', JSON.stringify(version))
-    })
-  })
 
   program
     .command('show-accounts')
@@ -1234,86 +1185,6 @@ export function devTool (
       }
     )
 
-  program
-    .command('show-lost-files-mongo')
-    .option('-w, --workspace <workspace>', 'Selected workspace only', '')
-    .option('--disabled', 'Include disabled workspaces', false)
-    .option('--all', 'Show all files', false)
-    .action(async (cmd: { workspace: string, disabled: boolean, all: boolean }) => {
-      const { dbUrl } = prepareTools()
-      await withDatabase(dbUrl, async (db) => {
-        await withStorage(async (adapter) => {
-          const mongodbUri = getMongoDBUrl()
-          const client = getMongoClient(mongodbUri)
-          const _client = await client.getClient()
-          try {
-            let index = 1
-            const workspaces = await listWorkspacesPure(db)
-            workspaces.sort((a, b) => b.lastVisit - a.lastVisit)
-
-            for (const workspace of workspaces) {
-              if (workspace.disabled === true && !cmd.disabled) {
-                console.log('ignore disabled workspace', workspace.workspace)
-                continue
-              }
-
-              if (cmd.workspace !== '' && workspace.workspace !== cmd.workspace) {
-                continue
-              }
-
-              try {
-                console.log('start', workspace.workspace, index, '/', workspaces.length)
-                const workspaceId = getWorkspaceId(workspace.workspace)
-                const wsDb = getWorkspaceMongoDB(_client, { name: workspace.workspace })
-                await showLostFiles(toolCtx, workspaceId, wsDb, adapter, { showAll: cmd.all })
-                console.log('done', workspace.workspace)
-              } catch (err) {
-                console.error(err)
-              }
-
-              index += 1
-            }
-          } catch (err: any) {
-            console.error(err)
-          } finally {
-            client.close()
-          }
-        })
-      })
-    })
-
-  program.command('show-lost-markup <workspace>').action(async (workspace: string, cmd: any) => {
-    const { dbUrl } = prepareTools()
-    await withDatabase(dbUrl, async (db) => {
-      await withStorage(async (adapter) => {
-        try {
-          const workspaceId = getWorkspaceId(workspace)
-          const token = generateToken(systemAccountEmail, workspaceId)
-          const endpoint = await getTransactorEndpoint(token)
-          await restoreLostMarkup(toolCtx, workspaceId, endpoint, adapter, { command: 'show' })
-        } catch (err: any) {
-          console.error(err)
-        }
-      })
-    })
-  })
-
-  program.command('restore-lost-markup <workspace>').action(async (workspace: string, cmd: any) => {
-    const { dbUrl } = prepareTools()
-    await withDatabase(dbUrl, async (db) => {
-      await withStorage(async (adapter) => {
-        try {
-          const workspaceId = getWorkspaceId(workspace)
-          const token = generateToken(systemAccountEmail, workspaceId)
-          const endpoint = await getTransactorEndpoint(token)
-          await restoreLostMarkup(toolCtx, workspaceId, endpoint, adapter, { command: 'restore' })
-        } catch (err: any) {
-          console.error(err)
-        }
-      })
-    })
-  })
-
   program.command('fix-bw-workspace <workspace>').action(async (workspace: string) => {
     await withStorage(async (adapter) => {
       await fixMinioBW(toolCtx, getWorkspaceId(workspace), adapter)
@@ -1338,42 +1209,6 @@ export function devTool (
       const token = generateToken(systemAccountEmail, wsid)
       const endpoint = await getTransactorEndpoint(token)
       await cleanArchivedSpaces(wsid, endpoint)
-    })
-
-  program
-    .command('chunter-fix-comments <workspace>')
-    .description('chunter-fix-comments')
-    .action(async (workspace: string, cmd: any) => {
-      const wsid = getWorkspaceId(workspace)
-      const token = generateToken(systemAccountEmail, wsid)
-      const endpoint = await getTransactorEndpoint(token)
-      await fixCommentDoubleIdCreate(wsid, endpoint)
-    })
-
-  program
-    .command('mixin-show-foreign-attributes <workspace>')
-    .description('mixin-show-foreign-attributes')
-    .option('--mixin <mixin>', 'Mixin class', '')
-    .option('--property <property>', 'Property name', '')
-    .option('--detail <detail>', 'Show details', false)
-    .action(async (workspace: string, cmd: { detail: boolean, mixin: string, property: string }) => {
-      const wsid = getWorkspaceId(workspace)
-      const token = generateToken(systemAccountEmail, wsid)
-      const endpoint = await getTransactorEndpoint(token)
-      await showMixinForeignAttributes(wsid, endpoint, cmd)
-    })
-
-  program
-    .command('mixin-fix-foreign-attributes-mongo <workspace>')
-    .description('mixin-fix-foreign-attributes')
-    .option('--mixin <mixin>', 'Mixin class', '')
-    .option('--property <property>', 'Property name', '')
-    .action(async (workspace: string, cmd: { mixin: string, property: string }) => {
-      const mongodbUri = getMongoDBUrl()
-      const wsid = getWorkspaceId(workspace)
-      const token = generateToken(systemAccountEmail, wsid)
-      const endpoint = await getTransactorEndpoint(token)
-      await fixMixinForeignAttributes(mongodbUri, wsid, endpoint, cmd)
     })
 
   program
@@ -1505,39 +1340,6 @@ export function devTool (
     })
 
   program
-    .command('fix-skills-mongo <workspace> <step>')
-    .description('fix skills for workspace')
-    .action(async (workspace: string, step: string) => {
-      const mongodbUri = getMongoDBUrl()
-      const wsid = getWorkspaceId(workspace)
-      const token = generateToken(systemAccountEmail, wsid)
-      const endpoint = await getTransactorEndpoint(token)
-      await fixSkills(mongodbUri, wsid, endpoint, step)
-    })
-
-  program
-    .command('restore-ats-types-mongo <workspace>')
-    .description('Restore recruiting task types for workspace')
-    .action(async (workspace: string) => {
-      const mongodbUri = getMongoDBUrl()
-      console.log('Restoring recruiting task types in workspace ', workspace, '...')
-      const wsid = getWorkspaceId(workspace)
-      const endpoint = await getTransactorEndpoint(generateToken(systemAccountEmail, wsid), 'external')
-      await restoreRecruitingTaskTypes(mongodbUri, wsid, endpoint)
-    })
-
-  program
-    .command('restore-ats-types-2-mongo <workspace>')
-    .description('Restore recruiting task types for workspace 2')
-    .action(async (workspace: string) => {
-      const mongodbUri = getMongoDBUrl()
-      console.log('Restoring recruiting task types in workspace ', workspace, '...')
-      const wsid = getWorkspaceId(workspace)
-      const endpoint = await getTransactorEndpoint(generateToken(systemAccountEmail, wsid), 'external')
-      await restoreHrTaskTypesFromUpdates(mongodbUri, wsid, endpoint)
-    })
-
-  program
     .command('change-field <workspace>')
     .description('change field value for the object')
     .requiredOption('--objectId <objectId>', 'objectId')
@@ -1557,86 +1359,12 @@ export function devTool (
     )
 
   program
-    .command('recreate-elastic-indexes-mongo <workspace>')
+    .command('recreate-elastic-indexes <workspace>')
     .description('reindex workspace to elastic')
     .action(async (workspace: string) => {
-      const mongodbUri = getMongoDBUrl()
-      const wsid = getWorkspaceId(workspace)
-      await recreateElastic(mongodbUri, wsid)
-    })
-
-  program
-    .command('recreate-all-elastic-indexes-mongo')
-    .description('reindex elastic')
-    .action(async () => {
-      const { dbUrl } = prepareTools()
-      const mongodbUri = getMongoDBUrl()
-
-      await withDatabase(dbUrl, async (db) => {
-        const workspaces = await listWorkspacesRaw(db)
-        workspaces.sort((a, b) => b.lastVisit - a.lastVisit)
-        for (const workspace of workspaces) {
-          const wsid = getWorkspaceId(workspace.workspace)
-          await recreateElastic(mongodbUri ?? dbUrl, wsid)
-        }
-      })
-    })
-
-  program
-    .command('fix-json-markup-mongo <workspace>')
-    .description('fixes double converted json markup')
-    .action(async (workspace: string) => {
-      const mongodbUri = getMongoDBUrl()
-      await withStorage(async (adapter) => {
-        const wsid = getWorkspaceId(workspace)
-        const endpoint = await getTransactorEndpoint(generateToken(systemAccountEmail, wsid), 'external')
-        await fixJsonMarkup(toolCtx, mongodbUri, adapter, wsid, endpoint)
-      })
-    })
-
-  program
-    .command('migrate-markup-mongo')
-    .description('migrates collaborative markup to storage')
-    .option('-w, --workspace <workspace>', 'Selected workspace only', '')
-    .option('-c, --concurrency <concurrency>', 'Number of documents being processed concurrently', '10')
-    .action(async (cmd: { workspace: string, concurrency: string }) => {
       const { dbUrl, txes } = prepareTools()
-      const mongodbUri = getMongoDBUrl()
-      await withDatabase(dbUrl, async (db) => {
-        await withStorage(async (adapter) => {
-          const workspaces = await listWorkspacesPure(db)
-          const client = getMongoClient(mongodbUri)
-          const _client = await client.getClient()
-          let index = 0
-          try {
-            for (const workspace of workspaces) {
-              if (cmd.workspace !== '' && workspace.workspace !== cmd.workspace) {
-                continue
-              }
-
-              const wsId = getWorkspaceId(workspace.workspace)
-              console.log('processing workspace', workspace.workspace, index, workspaces.length)
-              const wsUrl: WorkspaceIdWithUrl = {
-                name: workspace.workspace,
-                workspaceName: workspace.workspaceName ?? '',
-                workspaceUrl: workspace.workspaceUrl ?? ''
-              }
-
-              registerServerPlugins()
-              registerStringLoaders()
-
-              const { pipeline } = await getServerPipeline(toolCtx, txes, dbUrl, wsUrl)
-
-              await migrateMarkup(toolCtx, adapter, wsId, _client, pipeline, parseInt(cmd.concurrency))
-
-              console.log('...done', workspace.workspace)
-              index++
-            }
-          } finally {
-            client.close()
-          }
-        })
-      })
+      const wsid = getWorkspaceId(workspace)
+      await recreateElastic(dbUrl, wsid, txes)
     })
 
   program

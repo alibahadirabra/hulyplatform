@@ -20,13 +20,16 @@ import core, {
   type Class,
   type Client as CoreClient,
   type Doc,
+  type DocIndexState,
   DOMAIN_DOC_INDEX_STATE,
   DOMAIN_TX,
+  MeasureMetricsContext,
   type Ref,
   type Tx,
   type WorkspaceId
 } from '@hcengineering/core'
 import { getMongoClient, getWorkspaceMongoDB } from '@hcengineering/mongo'
+import { getServerPipeline } from '@hcengineering/server-pipeline'
 import { connect } from '@hcengineering/server-tool'
 import { generateModelDiff, printDiff } from './mdiff'
 
@@ -97,15 +100,21 @@ export async function updateField (
   }
 }
 
-export async function recreateElastic (mongoUrl: string, workspaceId: WorkspaceId): Promise<void> {
-  const client = getMongoClient(mongoUrl)
-  const _client = await client.getClient()
+export async function recreateElastic (dbUrl: string, workspaceId: WorkspaceId, txes: Tx[]): Promise<void> {
+  const pipeline = await getServerPipeline(new MeasureMetricsContext('tool', {}), txes, dbUrl, {
+    name: workspaceId.name,
+    workspaceName: workspaceId.name,
+    workspaceUrl: workspaceId.name
+  })
+
   try {
-    const db = getWorkspaceMongoDB(_client, workspaceId)
-    await db
-      .collection(DOMAIN_DOC_INDEX_STATE)
-      .updateMany({ _class: core.class.DocIndexState }, { $set: { stages: {}, needIndex: true } })
+    await pipeline.pipeline.context.lowLevelStorage?.rawUpdate<DocIndexState>(
+      DOMAIN_DOC_INDEX_STATE,
+      { _class: core.class.DocIndexState },
+      { needIndex: true }
+    )
   } finally {
-    client.close()
+    await pipeline.pipeline.close()
+    await pipeline.storageAdapter.close()
   }
 }
