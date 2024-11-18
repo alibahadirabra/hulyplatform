@@ -445,12 +445,11 @@ async function importPageDocument (
     preProcessMarkdown(json, documentMetaMap, fileUploader)
   }
   const yDoc = jsonToYDocNoSchema(json, 'content')
-  const buffer = yDocToBuffer(yDoc)
 
   const id = docMeta.id as Ref<Document>
   const collabId = makeCollaborativeDoc(id, 'description')
 
-  await fileUploader.uploadCollaborativeDoc(id, collabId, buffer)
+  await fileUploader.uploadCollaborativeDoc(id, collabId, yDoc)
 
   const parent = (parentMeta?.id as Ref<Document>) ?? document.ids.NoParent
 
