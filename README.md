@@ -130,10 +130,10 @@ sh ./scripts/create-workspace.sh
 Add the following line to your /etc/hosts file
 
 ```
-127.0.0.1 host.docker.internal
+127.0.0.1 172.160.249.119
 ```
 
-Accessing the URL http://host.docker.internal:8087 will lead you to the app in development mode.
+Accessing the URL http://172.160.249.119:8087 will lead you to the app in development mode.
 
 Limitations:
 

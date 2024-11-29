@@ -13,7 +13,7 @@
     "language": "en",
     "lastNameFirst": "true"
   },
-  "host.docker.internal:8087": {
+  "172.160.249.119:8087": {
     "key": "huly-docker",
     "title": "Huly",
     "protocol": "http",
@@ -32,7 +32,7 @@
     "protocol": "http",
     "language": "en"
   },
-  "host.docker.internal:8088": {
+  "172.160.249.119:8088": {
     "key": "tracex-docker",
     "title": "Huly",
     "protocol": "http",
