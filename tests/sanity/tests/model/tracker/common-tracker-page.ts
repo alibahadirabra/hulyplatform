@@ -74,7 +74,7 @@ export class CommonTrackerPage extends CalendarPage {
 
   view = (): Locator => this.page.locator('.hulyHeader-buttonsGroup > button[data-id="btn-viewOptions"]')
   showMore = (): Locator => this.page.locator('.hulyHeader-buttonsGroup > button[data-id="btn-viewSetting"]')
-  task1 = (): Locator => this.page.getByRole('link', { name: 'Welcome to Huly! 🌟' })
+  task1 = (): Locator => this.page.getByRole('link', { name: 'Welcome to Serwizer! 🌟' })
   task2 = (): Locator => this.page.getByRole('link', { name: 'Create your first Project 📌' })
   task3 = (): Locator => this.page.getByRole('link', { name: 'Create your first Issue 📝' })
   task4 = (): Locator => this.page.getByRole('link', { name: 'Schedule your first Todo 📆' })

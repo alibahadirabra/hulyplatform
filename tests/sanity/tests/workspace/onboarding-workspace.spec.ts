@@ -47,7 +47,7 @@ test.describe.skip('Workspace tests', () => {
     await signUpPage.signUp(newUser)
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await leftSideMenuPage.clickTracker()
-    await issuesPage.checkIssuesCount('Hello and Welcome to Huly! 🌟', 1)
+    await issuesPage.checkIssuesCount('Hello and Welcome to Serwizer! 🌟', 1)
     await issuesPage.checkIssuesCount('Todos and Time Blocking 🗓️', 1)
     await issuesPage.checkIssuesCount('Navigating Huly: Three Efficient Ways', 1)
     await issuesPage.checkIssuesCount('Connect GitHub with Huly (', 1)
