@@ -73,7 +73,7 @@ test.describe.skip('Workspace tests', () => {
 
     await leftSideMenuPage.clickTracker()
     await issuesPage.openIssueById('HI-1')
-    await checkTextChunksVisibility(page, text.helloAndWelcomeToHuly)
+    await checkTextChunksVisibility(page, text.helloAndWelcomeToSerwizer)
     await issuesDetailsPage.clickCloseIssueButton()
 
     await issuesPage.openIssueById('HI-2')
@@ -110,7 +110,7 @@ test.describe.skip('Workspace tests', () => {
     await selectWorkspacePage.createWorkspace(newWorkspaceName)
     await leftSideMenuPage.clickNotification()
     await notificationPage.clickOnNotification('HI-1')
-    await checkTextChunksVisibility(page, text.helloAndWelcomeToHuly)
+    await checkTextChunksVisibility(page, text.helloAndWelcomeToSerwizer)
   })
 
   test('User is able to upload pictures', async ({ page }) => {
